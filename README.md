@@ -249,19 +249,6 @@ password=123456
 
 GET /links/search?original_url=https://google.com
 
-
-
-## Используемые технологии
-
-- FastAPI
-- SQLAlchemy
-- SQLite
-- Redis
-- JWT авторизация
-- Docker
-- Docker Compose
-
-
 ## База данных
 
 ### Таблица users
@@ -282,12 +269,4 @@ GET /links/search?original_url=https://google.com
 - click_count
 - last_used_at
 - owner_id
-
-
-## Кэширование
-
-- используется Redis
-- кэшируется соответствие short_code → original_url
-- кэш очищается при обновлении или удалении ссылки
-
 
