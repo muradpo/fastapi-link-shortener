@@ -1,13 +1,16 @@
+from datetime import datetime
+
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import RedirectResponse
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine
 from app import models, schemas, crud
 from app.dependencies import get_db, get_current_user
 from app.auth import verify_password, create_access_token
-from fastapi.responses import RedirectResponse
-from datetime import datetime
-from fastapi.security import OAuth2PasswordRequestForm
+
+
 app = FastAPI(title="Link Shortener")
 
 Base.metadata.create_all(bind=engine)
@@ -17,13 +20,9 @@ Base.metadata.create_all(bind=engine)
 def root():
     return {"message": "Link shortener service running"}
 
-@app.get("/links/expired")
-def expired_links(db: Session = Depends(get_db)):
-    return crud.get_expired_links(db)
 
 @app.post("/register", response_model=schemas.UserOut)
 def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
-
     existing_user = crud.get_user_by_username(db, user.username)
 
     if existing_user:
@@ -46,11 +45,11 @@ def login(
         raise HTTPException(status_code=400, detail="Invalid credentials")
 
     token = create_access_token({"sub": db_user.username})
-
     return {"access_token": token, "token_type": "bearer"}
+
+
 @app.post("/links/shorten", response_model=schemas.LinkOut)
 def shorten_link(link: schemas.LinkCreate, db: Session = Depends(get_db)):
-
     crud.delete_expired_links(db)
 
     if link.custom_alias:
@@ -62,14 +61,89 @@ def shorten_link(link: schemas.LinkCreate, db: Session = Depends(get_db)):
         db=db,
         original_url=str(link.original_url),
         custom_alias=link.custom_alias,
-        expires_at=link.expires_at
+        expires_at=link.expires_at,
+        project_name=link.project_name
     )
 
     return new_link
 
+
+@app.post("/links/shorten/auth", response_model=schemas.LinkOut)
+def shorten_link_auth(
+    link: schemas.LinkCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    crud.delete_expired_links(db)
+
+    if link.custom_alias:
+        existing_link = crud.get_link_by_alias(db, link.custom_alias)
+        if existing_link:
+            raise HTTPException(status_code=400, detail="Custom alias already exists")
+
+    new_link = crud.create_link(
+        db=db,
+        original_url=str(link.original_url),
+        custom_alias=link.custom_alias,
+        expires_at=link.expires_at,
+        owner_id=current_user.id,
+        project_name=link.project_name
+    )
+
+    return new_link
+
+
+@app.get("/links/search", response_model=list[schemas.LinkOut])
+def search_links(original_url: str, db: Session = Depends(get_db)):
+    crud.delete_expired_links(db)
+    links = crud.find_links_by_url(db, original_url)
+    return links
+
+
+@app.get("/links/expired")
+def expired_links(db: Session = Depends(get_db)):
+    return crud.get_expired_links(db)
+
+
+@app.delete("/links/cleanup")
+def cleanup_links(
+    days: int = 30,
+    db: Session = Depends(get_db)
+):
+    deleted = crud.delete_unused_links(db, days)
+    return {"deleted_links": deleted}
+
+
+@app.get("/projects/{project_name}/links")
+def project_links(
+    project_name: str,
+    db: Session = Depends(get_db)
+):
+    return crud.get_links_by_project(db, project_name)
+
+
+@app.get("/links/my")
+def my_links(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return crud.get_user_links(db, current_user.id)
+
+
+@app.get("/links/{short_code}/stats", response_model=schemas.LinkStats)
+def get_link_stats(short_code: str, db: Session = Depends(get_db)):
+    crud.delete_expired_links(db)
+
+    link = crud.get_link_by_code(db, short_code)
+
+    if not link:
+        raise HTTPException(status_code=404, detail="Link not found")
+
+    return link
+
+
 @app.get("/links/{short_code}")
 def redirect_to_original(short_code: str, db: Session = Depends(get_db)):
-
     crud.delete_expired_links(db)
 
     cached_url = crud.get_cached_original_url(short_code)
@@ -94,17 +168,6 @@ def redirect_to_original(short_code: str, db: Session = Depends(get_db)):
 
     return RedirectResponse(url=link.original_url, status_code=302)
 
-@app.get("/links/{short_code}/stats", response_model=schemas.LinkStats)
-def get_link_stats(short_code: str, db: Session = Depends(get_db)):
-
-    crud.delete_expired_links(db)
-
-    link = crud.get_link_by_code(db, short_code)
-
-    if not link:
-        raise HTTPException(status_code=404, detail="Link not found")
-
-    return link
 
 @app.put("/links/{short_code}", response_model=schemas.LinkOut)
 def update_link(
@@ -127,6 +190,7 @@ def update_link(
     crud.delete_cached_original_url(short_code)
 
     return updated_link
+
 
 @app.delete("/links/{short_code}")
 def delete_link(
@@ -152,61 +216,3 @@ def delete_link(
     crud.delete_cached_original_url(short_code)
 
     return {"message": "Link deleted"}
-
-@app.get("/links/search", response_model=list[schemas.LinkOut])
-def search_links(original_url: str, db: Session = Depends(get_db)):
-
-    crud.delete_expired_links(db)
-
-    links = crud.find_links_by_url(db, original_url)
-
-    return links
-
-@app.post("/links/shorten/auth", response_model=schemas.LinkOut)
-def shorten_link_auth(
-    link: schemas.LinkCreate,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)
-):
-    crud.delete_expired_links(db)
-
-    if link.custom_alias:
-        existing_link = crud.get_link_by_alias(db, link.custom_alias)
-        if existing_link:
-            raise HTTPException(status_code=400, detail="Custom alias already exists")
-
-    new_link = crud.create_link(
-        db=db,
-        original_url=str(link.original_url),
-        custom_alias=link.custom_alias,
-        expires_at=link.expires_at,
-        owner_id=current_user.id
-    )
-
-    return new_link
-
-@app.get("/links/my")
-def my_links(
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    return crud.get_user_links(db, current_user.id)
-
-@app.delete("/links/cleanup")
-def cleanup_links(
-    days: int = 30,
-    db: Session = Depends(get_db)
-):
-    deleted = crud.delete_unused_links(db, days)
-    return {"deleted_links": deleted}
-
-@app.get("/links/expired")
-def expired_links(db: Session = Depends(get_db)):
-    return crud.get_expired_links(db)
-
-@app.get("/projects/{project_name}/links")
-def project_links(
-    project_name: str,
-    db: Session = Depends(get_db)
-):
-    return crud.get_links_by_project(db, project_name)

@@ -28,7 +28,7 @@ class Link(Base):
     expires_at = Column(DateTime, nullable=True)
     click_count = Column(Integer, default=0)
     last_used_at = Column(DateTime, nullable=True)
-
+    project_name = Column(String, nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     owner = relationship("User", back_populates="links")
