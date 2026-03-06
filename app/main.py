@@ -17,6 +17,9 @@ Base.metadata.create_all(bind=engine)
 def root():
     return {"message": "Link shortener service running"}
 
+@app.get("/links/expired")
+def expired_links(db: Session = Depends(get_db)):
+    return crud.get_expired_links(db)
 
 @app.post("/register", response_model=schemas.UserOut)
 def register(user: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -181,3 +184,29 @@ def shorten_link_auth(
     )
 
     return new_link
+
+@app.get("/links/my")
+def my_links(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    return crud.get_user_links(db, current_user.id)
+
+@app.delete("/links/cleanup")
+def cleanup_links(
+    days: int = 30,
+    db: Session = Depends(get_db)
+):
+    deleted = crud.delete_unused_links(db, days)
+    return {"deleted_links": deleted}
+
+@app.get("/links/expired")
+def expired_links(db: Session = Depends(get_db)):
+    return crud.get_expired_links(db)
+
+@app.get("/projects/{project_name}/links")
+def project_links(
+    project_name: str,
+    db: Session = Depends(get_db)
+):
+    return crud.get_links_by_project(db, project_name)

@@ -5,11 +5,17 @@ from app.auth import hash_password
 import string
 import random
 from app.redis_client import redis_client
+from datetime import datetime
+
+def get_links_by_project(db, project_name: str):
+    return db.query(models.Link).filter(
+        models.Link.project_name == project_name
+    ).all()
 
 def generate_short_code(length: int = 6):
     characters = string.ascii_letters + string.digits
     return ''.join(random.choice(characters) for _ in range(length))
-def create_link(db, original_url, custom_alias=None, expires_at=None, owner_id=None):
+def create_link(db, original_url, custom_alias=None, expires_at=None, owner_id=None, project_name=None):
 
     short_code = custom_alias if custom_alias else generate_short_code()
 
@@ -17,7 +23,8 @@ def create_link(db, original_url, custom_alias=None, expires_at=None, owner_id=N
         original_url=original_url,
         short_code=short_code,
         expires_at=expires_at,
-        owner_id=owner_id
+        owner_id=owner_id,
+        project_name=project_name
     )
 
     db.add(link)
@@ -106,3 +113,40 @@ def delete_expired_links(db):
         db.delete(link)
 
     db.commit()
+
+
+def get_expired_links(db):
+    return db.query(models.Link).filter(
+        models.Link.expires_at != None,
+        models.Link.expires_at < datetime.utcnow()
+    ).all()
+
+def get_user_links(db, user_id):
+    return db.query(models.Link).filter(
+        models.Link.owner_id == user_id
+    ).all()
+
+from datetime import datetime, timedelta
+
+def delete_unused_links(db, days: int = 30):
+    threshold = datetime.utcnow() - timedelta(days=days)
+
+    links = db.query(models.Link).filter(
+        models.Link.last_used_at != None,
+        models.Link.last_used_at < threshold
+    ).all()
+
+    for link in links:
+        db.delete(link)
+
+    db.commit()
+
+    return len(links)
+
+from datetime import datetime
+
+def get_expired_links(db):
+    return db.query(models.Link).filter(
+        models.Link.expires_at != None,
+        models.Link.expires_at < datetime.utcnow()
+    ).all()
